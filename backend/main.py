@@ -1,13 +1,13 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
-import uvicorn
 import cv2
 import numpy as np
 import pytesseract
 import json
 import os
 import PyPDF2
-from typing import List
+import asyncio
+from enem_question_analyzer import compare_answers
 
 # Inicialização do FastAPI
 app = FastAPI()
@@ -20,6 +20,7 @@ if not os.path.exists("resultados"):
 
 @app.get("/")
 def read_root():
+    # aqui vai render do html da tela de boas-vindas
     return {"message": "Bem-vindo ao sistema de OCR para Gabaritos do ENEM"}
 
 
@@ -92,6 +93,10 @@ async def upload_gabarito(file: UploadFile = File(...)):
 
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+    
+@app.get("/results/")
+def send_questions(list_answers, year, test_day):
+    results = asyncio.run(compare_answers(list_answers, year)) 
 
 
 # Para rodar a aplicação: uvicorn main:app --reload
