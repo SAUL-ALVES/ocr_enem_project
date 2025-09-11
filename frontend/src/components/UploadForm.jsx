@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react'; 
 
 const UploadForm = ({ onCorrect }) => {
   const [file, setFile] = useState(null);
@@ -42,9 +42,9 @@ const UploadForm = ({ onCorrect }) => {
   };
 
   return (
-    <div>
+    <div className="upload-container">
       <div
-        className={`upload-box ${isDragging ? 'drag-over' : ''}`}
+        className={`upload-box-compact ${isDragging ? 'drag-over' : ''}`}
         onClick={() => fileInputRef.current.click()}
         onDragEnter={(e) => handleDragEvents(e, true)}
         onDragLeave={(e) => handleDragEvents(e, false)}
@@ -57,22 +57,15 @@ const UploadForm = ({ onCorrect }) => {
           accept=".pdf,.jpg,.jpeg,.png"
           onChange={handleFileChange}
           ref={fileInputRef}
+          style={{ display: 'none' }}
         />
-        <div className="upload-icon-area">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-        </div>
-        <div className="upload-text-area">
-          <label htmlFor="gabarito-file">
-            Clique para selecionar ou arraste o arquivo
-          </label>
-          <span id="file-name">
-            {file ? file.name : "Nenhum arquivo selecionado."}
-          </span>
-        </div>
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        <span id="file-name">
+          {file ? file.name : "Arraste ou clique para enviar"}
+        </span>
       </div>
-
       <button id="correct-button" onClick={handleCorrect} disabled={!file || isLoading}>
-        {isLoading ? 'Corrigindo...' : 'Corrigir Gabarito'}
+        {isLoading ? 'Corrigindo...' : 'Corrigir'}
       </button>
     </div>
   );
