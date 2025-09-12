@@ -17,7 +17,7 @@ const Sidebar = ({ history, searchCode, onSearch, selectedDate, onDateChange, on
       </div>
 
       <div className="search-area">
-        <h3>Buscar por Histórico</h3>
+        <h3>Buscar por Código</h3>
         <div className="search-container">
           <input
             type="text"

@@ -95,9 +95,8 @@ function App() {
               <h1>OCR ENEM</h1>
               <p>Envie o gabarito da sua prova ou simulado e tenha a correção instantânea.</p>
             </div>
-            <div className="container-body">
-              <UploadForm onCorrect={handleCorrection} />
-            </div>
+            {/* O UploadForm agora está diretamente aqui para melhor alinhamento */}
+            <UploadForm onCorrect={handleCorrection} />
           </div>
         </main>
 
