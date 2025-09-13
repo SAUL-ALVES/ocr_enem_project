@@ -5,7 +5,6 @@ import ReportView from './components/ReportView';
 import Sidebar from './components/Sidebar';
 import logo from '../public/logo.png';
 
-// DADOS MOCK (SIMULAÇÃO DO BACKEND)
 const mockDatabase = {
   "ALUNO-583271": {
     code: "ALUNO-583271",
@@ -27,7 +26,7 @@ const mockDatabase = {
 
 function App() {
   const [reportData, setReportData] = useState(null);
-  const [userCode, setUserCode] = useState('');
+  const [userCode, setUserCode] = useState(''); 
   
   const [searchCode, setSearchCode] = useState('');
   const [selectedDate, setSelectedDate] = useState(null);
@@ -95,7 +94,6 @@ function App() {
               <h1>OCR ENEM</h1>
               <p>Envie o gabarito da sua prova ou simulado e tenha a correção instantânea.</p>
             </div>
-            {/* O UploadForm agora está diretamente aqui para melhor alinhamento */}
             <UploadForm onCorrect={handleCorrection} />
           </div>
         </main>

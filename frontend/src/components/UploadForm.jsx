@@ -9,8 +9,8 @@ const UploadForm = ({ onCorrect }) => {
   const fileInputRef = useRef(null);
 
   const [selectedDay, setSelectedDay] = useState(null);
-  // ✅ Altera o estado inicial para que um ano já esteja selecionado por padrão
-  const [selectedYear, setSelectedYear] = useState(new Date()); 
+  const [selectedYear, setSelectedYear] = useState(new Date());
+  const [selectedLanguage, setSelectedLanguage] = useState(null);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -20,8 +20,8 @@ const UploadForm = ({ onCorrect }) => {
   };
 
   const handleCorrect = async () => {
-    if (!selectedDay || !selectedYear) {
-      alert("Por favor, selecione o dia e o ano da prova.");
+    if (!selectedDay || !selectedYear || !selectedLanguage) {
+      alert("Por favor, selecione o dia, o idioma e o ano da prova.");
       return;
     }
     if (!file) {
@@ -38,6 +38,7 @@ const UploadForm = ({ onCorrect }) => {
     onCorrect(mockResult, mockUserCode);
     setFile(null);
     setSelectedDay(null);
+    setSelectedLanguage(null);
   };
 
   const handleDragEvents = (e, dragging) => {
@@ -74,6 +75,25 @@ const UploadForm = ({ onCorrect }) => {
             </button>
           </div>
         </div>
+
+        <div className="option-group">
+          <label>Selecione o idioma</label>
+          <div className="day-selector">
+            <button 
+              className={`day-btn ${selectedLanguage === 'ingles' ? 'active' : ''}`}
+              onClick={() => setSelectedLanguage('ingles')}
+            >
+              Inglês
+            </button>
+            <button 
+              className={`day-btn ${selectedLanguage === 'espanhol' ? 'active' : ''}`}
+              onClick={() => setSelectedLanguage('espanhol')}
+            >
+              Espanhol
+            </button>
+          </div>
+        </div>
+
         <div className="option-group">
           <label>Selecione o ano</label>
           <DatePicker
@@ -83,9 +103,8 @@ const UploadForm = ({ onCorrect }) => {
             dateFormat="yyyy"
             maxDate={new Date()} 
             minDate={new Date("2009-01-01")}
-            className="year-picker-input"
-            // ✅ Garante que o ano seja sempre exibido, mesmo sem interação
-            yearItemNumber={12} // Define quantos anos são exibidos no picker para melhor navegação
+            className="year-picker-input day-btn"
+            yearItemNumber={12}
           />
         </div>
       </div>
@@ -111,7 +130,7 @@ const UploadForm = ({ onCorrect }) => {
             {file ? file.name : "Arraste ou clique para enviar"}
           </span>
         </div>
-        <button id="correct-button" onClick={handleCorrect} disabled={!file || !selectedDay || !selectedYear || isLoading}>
+        <button id="correct-button" onClick={handleCorrect} disabled={!file || !selectedDay || !selectedYear || !selectedLanguage || isLoading}>
           {isLoading ? 'Corrigindo...' : 'Corrigir'}
         </button>
       </div>
