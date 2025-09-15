@@ -142,5 +142,5 @@ def extrair_codigo_aluno_automatico(caminho_imagem):
 
 
 if __name__ == '__main__':
-    caminho_da_prova = 'backend/prova.jpg' 
+    caminho_da_prova = 'backend/_.jpg' 
     extrair_codigo_aluno_automatico(caminho_da_prova)
