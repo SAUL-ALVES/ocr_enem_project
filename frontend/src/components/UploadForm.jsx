@@ -20,26 +20,50 @@ const UploadForm = ({ onCorrect }) => {
   };
 
   const handleCorrect = async () => {
-    if (!selectedDay || !selectedYear || !selectedLanguage) {
-      alert("Por favor, selecione o dia, o idioma e o ano da prova.");
-      return;
+  if (!selectedDay || !selectedYear || !selectedLanguage) {
+    alert("Por favor, selecione o dia, o idioma e o ano da prova.");
+    return;
+  }
+  if (!file) {
+    alert("Por favor, selecione um arquivo.");
+    return;
+  }
+
+  setIsLoading(true);
+
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("day", selectedDay);
+    formData.append("year", selectedYear);
+    formData.append("language", selectedLanguage);
+
+    const response = await fetch("http://127.0.0.1:8000/corrigir/", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(err);
     }
-    if (!file) {
-      alert("Por favor, selecione um arquivo.");
-      return;
-    }
-    setIsLoading(true);
-    
-    const mockResult = { acertos: 168, total_questoes: 180 };
-    const mockUserCode = `ALUNO-${Math.floor(100000 + Math.random() * 900000)}`;
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    setIsLoading(false);
-    onCorrect(mockResult, mockUserCode);
+
+    const resultData = await response.json();
+    onCorrect(resultData, resultData.user_code || null);
+
     setFile(null);
     setSelectedDay(null);
+    setSelectedYear(null);
     setSelectedLanguage(null);
-  };
+
+  } catch (error) {
+    console.error("Erro ao corrigir:", error);
+    alert("Erro ao enviar o arquivo para correção. Verifique o console.");
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   const handleDragEvents = (e, dragging) => {
     e.preventDefault();
@@ -101,7 +125,7 @@ const UploadForm = ({ onCorrect }) => {
             onChange={(date) => setSelectedYear(date)}
             showYearPicker
             dateFormat="yyyy"
-            maxDate={new Date()} 
+            maxDate={new Date("2023")} 
             minDate={new Date("2009-01-01")}
             className="year-picker-input day-btn"
             yearItemNumber={12}
