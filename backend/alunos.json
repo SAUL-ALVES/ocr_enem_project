@@ -1,3 +1,34 @@
 {
     
+    "01": {
+        "nome": "Alan Dellbert",
+        "turma": "Redes 3",
+        "historico": []
+
+    },
+
+
+    "02": {
+        "nome": "Amanda Vitória",
+        "turma": "Redes 3",
+        "historico": []
+    },
+
+    "03": {
+        "nome": "Ana Clara",
+        "turma": "Redes 3",
+        "historico": []
+    },
+
+    "04": {
+        "nome": "Ana Laura",
+        "turma": "Redes 3",
+        "historico": []
+    }, 
+
+    "05": {
+        "nome": "David Kaylton",
+        "turma": "Redes 3",
+        "historico": []
+    }
 }
