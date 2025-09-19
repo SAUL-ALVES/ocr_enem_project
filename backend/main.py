@@ -9,25 +9,27 @@ import os
 import PyPDF2
 from enem_question_analyzer import compare_answers
 
+from roi_code import extrair_codigo_aluno_automatico
+import shutil
+import uuid
+
 # Inicialização do FastAPI
 app = FastAPI()
 
-from fastapi.staticfiles import StaticFiles
-import os
-
 FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
-
 app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
 
-if not os.path.exists("resultados"):
-    os.makedirs("resultados")
+
+UPLOADS_DIR = "uploads"
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+os.makedirs("resultados", exist_ok=True)
 
 
 @app.get("/")
 def read_root():
-   return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
-    
-    
+    return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+
+
 @app.post("/corrigir/")
 async def corrigir(
     file: UploadFile = File(...),
@@ -35,31 +37,37 @@ async def corrigir(
     year: int = Form(...),
     language: str = Form(...)
 ):
+    
+    file_extension = file.filename.split(".")[-1].lower()
+    temp_filename = f"{uuid.uuid4()}.{file_extension}"
+    temp_filepath = os.path.join(UPLOADS_DIR, temp_filename)
+
     try:
-        # Detecta extensão do arquivo
-        file_extension = file.filename.split(".")[-1].lower()
-        contents = await file.read()
+        with open(temp_filepath, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # --- NOVA ADIÇÃO: Variável para armazenar o código do aluno ---
+        codigo_aluno = None
 
         if file_extension in ["jpg", "jpeg", "png"]:
-            nparr = np.frombuffer(contents, np.uint8)
-            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            # --- NOVA ADIÇÃO: Chamar a função para extrair o código do aluno ---
+            codigo_aluno = extrair_codigo_aluno_automatico(temp_filepath)
 
-            # OCR
+            # O resto do seu código original continua aqui, lendo do arquivo salvo
+            image = cv2.imread(temp_filepath)
             text = pytesseract.image_to_string(image)
-
-            # Aqui você pode extrair lista de respostas do texto OCR
             list_answers = []  # TODO: extrair respostas reais
 
         elif file_extension == "pdf":
-            reader = PyPDF2.PdfReader(file.file)
-            if len(reader.pages) > 1:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "Cada arquivo PDF deve conter apenas um gabarito."}
-                )
-            # TODO: converter PDF para imagem e extrair respostas
-            list_answers = []
-
+            with open(temp_filepath, "rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                if len(reader.pages) > 1:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "Cada arquivo PDF deve conter apenas um gabarito."}
+                    )
+            list_answers = [] # TODO: 
+        
         else:
             return JSONResponse(
                 status_code=400,
@@ -67,10 +75,12 @@ async def corrigir(
             )
 
         # Rodar análise de respostas
-        results = await compare_answers(list_answers, year, test_day=day, language=language)  #linguagem a adicionar 
+        results = await compare_answers(list_answers, year, test_day=day, language=language)
 
         # Preparar resultado final
         resultado = {
+            
+            "codigo_aluno": codigo_aluno,
             "filename": file.filename,
             "day": day,
             "year": year,
@@ -79,7 +89,7 @@ async def corrigir(
             "results": results
         }
 
-        # Salvar JSON
+        
         output_filename = os.path.join("resultados", f"{os.path.basename(file.filename)}.json")
         with open(output_filename, "w", encoding="utf-8") as f:
             json.dump(resultado, f, ensure_ascii=False, indent=4)
@@ -88,4 +98,9 @@ async def corrigir(
 
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+    finally:
+        
+        if os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+
 # Para rodar a aplicação: uvicorn main:app --reload
