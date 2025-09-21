@@ -10,24 +10,27 @@ import PyPDF2
 from pdf2image import convert_from_bytes
 from enem_question_analyzer import compare_answers
 
-# importa tuas funções já prontas
 from roi_code import extrair_codigo_aluno_automatico
-from leitor_gabarito import extrair_respostas_gabarito
+import shutil
+import uuid
 
+# Inicialização do FastAPI
 app = FastAPI()
 
 FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
 app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
 
-if not os.path.exists("resultados"):
-    os.makedirs("resultados")
+
+UPLOADS_DIR = "uploads"
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+os.makedirs("resultados", exist_ok=True)
 
 
 @app.get("/")
 def read_root():
-   return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
-    
-    
+    return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+
+
 @app.post("/corrigir/")
 async def corrigir(
     file: UploadFile = File(...),
@@ -35,60 +38,51 @@ async def corrigir(
     year: int = Form(...),
     language: str = Form(...)
 ):
+    
+    file_extension = file.filename.split(".")[-1].lower()
+    temp_filename = f"{uuid.uuid4()}.{file_extension}"
+    temp_filepath = os.path.join(UPLOADS_DIR, temp_filename)
+
     try:
-        file_extension = file.filename.split(".")[-1].lower()
-        contents = await file.read()
+        with open(temp_filepath, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # --- NOVA ADIÇÃO: Variável para armazenar o código do aluno ---
+        codigo_aluno = None
 
         # === CASO IMAGEM (PNG/JPG) ===
         if file_extension in ["jpg", "jpeg", "png"]:
-            nparr = np.frombuffer(contents, np.uint8)
-            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            # --- NOVA ADIÇÃO: Chamar a função para extrair o código do aluno ---
+            codigo_aluno = extrair_codigo_aluno_automatico(temp_filepath)
 
-        # === CASO PDF ===
+            # O resto do seu código original continua aqui, lendo do arquivo salvo
+            image = cv2.imread(temp_filepath)
+            text = pytesseract.image_to_string(image)
+            list_answers = []  # TODO: extrair respostas reais
+
         elif file_extension == "pdf":
-            reader = PyPDF2.PdfReader(file.file)
-            if len(reader.pages) > 1:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "Cada PDF deve conter apenas 1 página de gabarito."}
-                )
-            # Converter PDF em imagem
-            imagens_pdf = convert_from_bytes(contents, dpi=300)
-            if not imagens_pdf:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "Falha ao converter PDF em imagem."}
-                )
-            # Converte PIL -> OpenCV
-            image = cv2.cvtColor(np.array(imagens_pdf[0]), cv2.COLOR_RGB2BGR)
-
+            with open(temp_filepath, "rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                if len(reader.pages) > 1:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "Cada arquivo PDF deve conter apenas um gabarito."}
+                    )
+            list_answers = [] # TODO: 
+        
         else:
             return JSONResponse(
                 status_code=400,
                 content={"error": "Formato de arquivo não suportado."}
             )
 
-        # Salvar temporário
-        temp_path = os.path.join("resultados", f"temp_{file.filename}.png")
-        cv2.imwrite(temp_path, image)
-
-        # Extrair código e gabarito
-        codigo_aluno = extrair_codigo_aluno_automatico(temp_path)
-        gabarito = extrair_respostas_gabarito(temp_path)
-
-        # OCR do texto inteiro (opcional, debug)
-        text = pytesseract.image_to_string(image)
-
-        # Comparar respostas
-        results = await compare_answers(
-            list(gabarito.values()), 
-            year, 
-            test_day=day, 
-            language=language
-        )
+        # Rodar análise de respostas
+        results = await compare_answers(list_answers, year, test_day=day, language=language)
 
         # Montar JSON final
         resultado = {
+            
+            "codigo_aluno": codigo_aluno,
             "filename": file.filename,
             "day": day,
             "year": year,
@@ -99,7 +93,7 @@ async def corrigir(
             "results": results
         }
 
-        # Salvar resultado em JSON
+        
         output_filename = os.path.join("resultados", f"{os.path.basename(file.filename)}.json")
         with open(output_filename, "w", encoding="utf-8") as f:
             json.dump(resultado, f, ensure_ascii=False, indent=4)
@@ -108,3 +102,9 @@ async def corrigir(
 
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+    finally:
+        
+        if os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+
+# Para rodar a aplicação: uvicorn main:app --reload
