@@ -2,7 +2,8 @@ import asyncio
 import aiohttp
 
 list_answers = []
-    
+
+
 async def fetch_questao(session, ano, index) -> dict:
     url = f"https://api.enem.dev/v1/exams/{ano}/questions/{index}"
     async with session.get(url) as response:
@@ -11,14 +12,11 @@ async def fetch_questao(session, ano, index) -> dict:
             return {
                 "index": data["index"],
                 "title": data["title"],
-                "correct": data.get("correctAlternative")
+                "correct": data.get("correctAlternative"),
             }
         else:
-            return {
-                "index": index,
-                "title": f"Questão {index}",
-                "correct": "Anulado"
-            }
+            return {"index": index, "title": f"Questão {index}", "correct": "Anulado"}
+
 
 async def fetch_todas_questoes(ano) -> list:
     prova_url = f"https://api.enem.dev/v1/exams/{ano}"
@@ -34,31 +32,58 @@ async def fetch_todas_questoes(ano) -> list:
 
         return [q for q in questoes if q is not None]
 
-async def compare_answers(list_answers: list, year: int, test_day: int):
+
+async def compare_answers(list_answers: list, year: int, test_day: int, language: str):
     questoes = await fetch_todas_questoes(year)
-    print(f"\n✅ Total de questões encontradas: {len(questoes)}\n")
+    print(f"\n✅ Total de questões encontradas na API: {len(questoes)}\n")
     print(f"✅ Total de respostas do usuário: {len(list_answers)}\n")
-    
+
     if test_day == 1:
-        start, end = 0, 90  
+        start, end = 0, 90
     elif test_day == 2:
         start, end = 90, 180
+    else:
+        start, end = 0, 90
 
     questoes_dia = questoes[start:end]
-    min_length = min(len(questoes_dia), len(list_answers))
 
-    corrects = sum(
-        1 for i in range(min_length)
-        if questoes_dia[i]['correct'] == list_answers[i] 
-        or questoes_dia[i]['correct'] == "Anulado"
+    num_questoes_comparar = min(len(questoes_dia), len(list_answers))
+
+    respostas_detalhadas = []
+    acertos = 0
+
+    for i in range(num_questoes_comparar):
+        resposta_usuario = list_answers[i]
+        resposta_correta = questoes_dia[i]["correct"]
+
+        acertou = (resposta_usuario == resposta_correta) or (
+            resposta_correta == "Anulado"
+        )
+
+        if acertou:
+            acertos += 1
+
+        respostas_detalhadas.append(
+            {
+                "questao_num": start + i + 1,
+                "resposta_usuario": resposta_usuario,
+                "resposta_correta": resposta_correta,
+                "acertou": acertou,
+            }
+        )
+
+    print(
+        f"✅ Total de respostas corretas: {acertos}/{num_questoes_comparar} questões\n"
     )
-    print(f"✅ Total de respostas corretas: {corrects}/{min_length} questões\n")
-    
-    for i in range(min_length):
-        status = "✅" if questoes[i]['correct'] == list_answers[i] else "❌"
-        print(f"{status} Questão {i+1}: Usuário={list_answers[i]}, Correto={questoes[i]['correct']}")
+
+    # ADIÇÃO CRÍTICA: Retornar os resultados
+    return {
+        "acertos": acertos,
+        "total_questoes": num_questoes_comparar,
+        "detalhes": respostas_detalhadas,
+    }
 
 
-if __name__ == "__main__": 
+if __name__ == "__main__":
     year: int = input("Digite o ano da prova do ENEM (ex: 2009): ")
     asyncio.run(compare_answers(list_answers, year))

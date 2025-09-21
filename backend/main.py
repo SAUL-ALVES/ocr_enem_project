@@ -7,23 +7,44 @@ import pytesseract
 import json
 import os
 import PyPDF2
-from pdf2image import convert_from_bytes
-from enem_question_analyzer import compare_answers
+from datetime import datetime
 
+import traceback
+
+
+from enem_question_analyzer import compare_answers
 from roi_code import extrair_codigo_aluno_automatico
+from leitor_gabarito import extrair_respostas_gabarito
 import shutil
 import uuid
 
-# Inicialização do FastAPI
+
 app = FastAPI()
 
-FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
-app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
-
+FRONTEND_DIST = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+)
+app.mount(
+    "/assets",
+    StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")),
+    name="assets",
+)
 
 UPLOADS_DIR = "uploads"
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 os.makedirs("resultados", exist_ok=True)
+
+
+def carregar_dados_alunos():
+    """Carrega os dados do arquivo alunos.json."""
+    with open("alunos.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def salvar_dados_alunos(dados):
+    """Salva os dados no arquivo alunos.json."""
+    with open("alunos.json", "w", encoding="utf-8") as f:
+        json.dump(dados, f, indent=4, ensure_ascii=False)
 
 
 @app.get("/")
@@ -35,76 +56,110 @@ def read_root():
 async def corrigir(
     file: UploadFile = File(...),
     day: str = Form(...),
-    year: int = Form(...),
-    language: str = Form(...)
+    year: str = Form(...),
+    language: str = Form(...),
 ):
-    
-    file_extension = file.filename.split(".")[-1].lower()
-    temp_filename = f"{uuid.uuid4()}.{file_extension}"
-    temp_filepath = os.path.join(UPLOADS_DIR, temp_filename)
 
     try:
+        file_extension = file.filename.split(".")[-1].lower()
+        temp_filename = f"{uuid.uuid4()}.{file_extension}"
+        temp_filepath = os.path.join(UPLOADS_DIR, temp_filename)
+
         with open(temp_filepath, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # --- NOVA ADIÇÃO: Variável para armazenar o código do aluno ---
         codigo_aluno = None
+        respostas_dict = None
 
-        # === CASO IMAGEM (PNG/JPG) ===
         if file_extension in ["jpg", "jpeg", "png"]:
-            # --- NOVA ADIÇÃO: Chamar a função para extrair o código do aluno ---
             codigo_aluno = extrair_codigo_aluno_automatico(temp_filepath)
+            if not codigo_aluno or "?" in codigo_aluno:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Não foi possível ler o código do aluno."},
+                )
 
-            # O resto do seu código original continua aqui, lendo do arquivo salvo
-            image = cv2.imread(temp_filepath)
-            text = pytesseract.image_to_string(image)
-            list_answers = []  # TODO: extrair respostas reais
-
-        elif file_extension == "pdf":
-            with open(temp_filepath, "rb") as f:
-                reader = PyPDF2.PdfReader(f)
-                if len(reader.pages) > 1:
-                    return JSONResponse(
-                        status_code=400,
-                        content={"error": "Cada arquivo PDF deve conter apenas um gabarito."}
-                    )
-            list_answers = [] # TODO: 
-        
+            respostas_dict = extrair_respostas_gabarito(temp_filepath)
+            if not respostas_dict:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "Não foi possível extrair as respostas do gabarito."
+                    },
+                )
         else:
             return JSONResponse(
-                status_code=400,
-                content={"error": "Formato de arquivo não suportado."}
+                status_code=400, content={"error": "Formato de arquivo não suportado."}
             )
 
-        # Rodar análise de respostas
-        results = await compare_answers(list_answers, year, test_day=day, language=language)
+        inicio_questao = 1
+        fim_questao = 90
+        list_answers = [
+            respostas_dict.get(i, "X") for i in range(inicio_questao, fim_questao + 1)
+        ]
 
-        # Montar JSON final
-        resultado = {
-            
-            "codigo_aluno": codigo_aluno,
-            "filename": file.filename,
-            "day": day,
-            "year": year,
-            "language": language,
-            "codigo_aluno": codigo_aluno,
-            "gabarito": gabarito,
-            "texto_reconhecido": text,
-            "results": results
+        day_int = int(day)
+        year_int = int(year)
+
+        results_analysis = await compare_answers(
+            list_answers, year_int, test_day=day_int, language=language
+        )
+
+        alunos_db = carregar_dados_alunos()
+        if codigo_aluno not in alunos_db:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Aluno com código '{codigo_aluno}' não encontrado."},
+            )
+
+        aluno = alunos_db[codigo_aluno]
+        if "historico" not in aluno:
+            aluno["historico"] = []
+
+        nova_entrada_historico = {
+            "data_correcao": datetime.now().isoformat(),
+            "prova_ano": year,
+            "prova_dia": day,
+            "prova_idioma": language,
+            "respostas_enviadas": respostas_dict,
+            "analise_resultado": results_analysis,
         }
 
-        
-        output_filename = os.path.join("resultados", f"{os.path.basename(file.filename)}.json")
+        aluno["historico"].append(nova_entrada_historico)
+        salvar_dados_alunos(alunos_db)
+
+        resultado_final = {
+            "mensagem": f"Prova do aluno {aluno.get('nome', '')} corrigida e histórico salvo!",
+            "codigo_aluno": codigo_aluno,
+            "nome_aluno": aluno.get("nome", "Não cadastrado"),
+            "detalhes_prova": {"ano": year, "dia": day, "idioma": language},
+            "analise": results_analysis,
+        }
+
+        output_filename = os.path.join(
+            "resultados", f"{codigo_aluno}_{year}_{day}.json"
+        )
         with open(output_filename, "w", encoding="utf-8") as f:
-            json.dump(resultado, f, ensure_ascii=False, indent=4)
+            json.dump(resultado_final, f, ensure_ascii=False, indent=4)
 
-        return JSONResponse(resultado)
-
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
-    finally:
-        
         if os.path.exists(temp_filepath):
             os.remove(temp_filepath)
+
+        return JSONResponse(resultado_final)
+
+    except Exception as e:
+
+        print("!!!!!!!!!! OCORREU UM ERRO CRÍTICO !!!!!!!!!!")
+        print(traceback.format_exc())
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+        if "temp_filepath" in locals() and os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Erro interno no servidor.", "details": str(e)},
+        )
+
 
 # Para rodar a aplicação: uvicorn main:app --reload
