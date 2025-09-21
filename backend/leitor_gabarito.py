@@ -1,253 +1,304 @@
 # -*- coding: utf-8 -*-
 import cv2
-import pytesseract
 import numpy as np
-from imutils import contours
-import unicodedata
+import csv
 import os
+from math import hypot
 
+# -------------------------
+# Utilitários
+# -------------------------
+def order_points(pts):
+    # pts: array Nx2
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]  # top-left
+    rect[2] = pts[np.argmax(s)]  # bottom-right
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]  # top-right
+    rect[3] = pts[np.argmax(diff)]  # bottom-left
+    return rect
 
-try:
-    pytesseract.pytesseract.tesseract_cmd = (
-        r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-    )
-    pytesseract.get_tesseract_version()
-except Exception as e:
-    print(
-        "ERRO: Tesseract não encontrado. Verifique o caminho na variável 'pytesseract.pytesseract.tesseract_cmd'."
-    )
-    exit()
+def group_positions(positions, tol=None):
+    """Agrupa posições 1D (sorted) em clusters próximos. Retorna média de cada cluster."""
+    if len(positions) == 0:
+        return []
+    pos = sorted(positions)
+    diffs = np.diff(pos) if len(pos) > 1 else np.array([0])
+    if tol is None:
+        med = np.median(diffs) if len(diffs) > 0 else 0
+        tol = max(10, med * 0.6)  # heurística
+    clusters = []
+    current = [pos[0]]
+    for p in pos[1:]:
+        if p - current[-1] <= tol:
+            current.append(p)
+        else:
+            clusters.append(int(np.mean(current)))
+            current = [p]
+    clusters.append(int(np.mean(current)))
+    return clusters
 
+# -------------------------
+# Detecta quadradinhos (âncoras) — retorna centros e bboxes
+# -------------------------
+def detectar_quadrados(imagem, debug=False):
+    gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    # fecha pequenos furos
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
 
-def processar_bloco_respostas(roi_bloco, questao_inicial, imagem_para_desenhar):
-    """
-    Analisa uma ROI, detecta as respostas marcadas e as retorna em um dicionário.
-    *** VERSÃO CORRIGIDA: Usa intensidade média em escala de cinza para robustez. ***
-    """
-    LIMIAR_DE_PREENCHIMENTO = 90.0
-
-    gabarito_parcial = {}
-    if roi_bloco is None or roi_bloco.size < 200:
-        print(f"Aviso: ROI para questão inicial {questao_inicial} inválida. Pulando.")
-        return {}
-
-    img_cinza = cv2.cvtColor(roi_bloco, cv2.COLOR_BGR2GRAY)
-
-    img_blur_thresh = cv2.GaussianBlur(img_cinza, (5, 5), 0)
-    img_thresh = cv2.adaptiveThreshold(
-        img_blur_thresh,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV,
-        15,
-        4,
-    )
-
-    img_cinza_invertida = cv2.bitwise_not(img_cinza)
-
-    cnts, _ = cv2.findContours(
-        img_thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
-
-    bolhas_validas = []
-    MIN_BUBBLE_DIAMETER = int(roi_bloco.shape[1] * 0.1)
-    for c in cnts:
-        (x, y, w, h) = cv2.boundingRect(c)
-        aspect_ratio = w / float(h)
-        if (
-            w >= MIN_BUBBLE_DIAMETER
-            and h >= MIN_BUBBLE_DIAMETER
-            and 0.8 <= aspect_ratio <= 1.2
-        ):
-            bolhas_validas.append(c)
-
-    if len(bolhas_validas) < 5:
-        return {}
-
-    bolhas_validas = contours.sort_contours(bolhas_validas, method="top-to-bottom")[0]
-
-    mapa_respostas = {0: "A", 1: "B", 2: "C", 3: "D", 4: "E"}
-
-    LIMIAR_DE_PREENCHimento = 90.0
-
-    for i in range(0, len(bolhas_validas), 5):
-        grupo_atual = bolhas_validas[i : i + 5]
-        if len(grupo_atual) != 5:
+    conts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    marcadores = []
+    for c in conts:
+        area = cv2.contourArea(c)
+        if area < 200 or area > 8000:
             continue
-        grupo_atual = contours.sort_contours(grupo_atual, method="left-to-right")[0]
+        x,y,w,h = cv2.boundingRect(c)
+        ar = w / float(h) if h>0 else 0
+        # quadrado razoável
+        if 0.7 <= ar <= 1.3:
+            # aproximar para polígono e ver se tem 4 vértices
+            peri = cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+            if len(approx) == 4:
+                cx = x + w//2
+                cy = y + h//2
+                marcadores.append({"x": x, "y": y, "w": w, "h": h, "cx": cx, "cy": cy, "area": area})
 
-        medias_intensidade = []
-        for c in grupo_atual:
+    # ordenar por posição (y then x)
+    marcadores = sorted(marcadores, key=lambda m: (m["y"], m["x"]))
 
-            mask = np.zeros(img_cinza.shape, dtype="uint8")
-            cv2.drawContours(mask, [c], -1, 255, -1)
+    if debug:
+        img = imagem.copy()
+        for m in marcadores:
+            cv2.rectangle(img, (m["x"], m["y"]), (m["x"]+m["w"], m["y"]+m["h"]), (0,0,255), 2)
+        cv2.imwrite("debug_markers.png", img)
+        print(f"[DEBUG] Marcadores detectados: {len(marcadores)} -> debug_markers.png")
 
-            pixels_da_bolha = cv2.bitwise_and(
-                img_cinza_invertida, img_cinza_invertida, mask=mask
-            )
+    return marcadores
 
-            media = np.mean(pixels_da_bolha[mask > 0])
-            medias_intensidade.append(media)
+# -------------------------
+# Warpar imagem usando os 4 marcadores (se encontrados)
+# -------------------------
+def warp_from_markers(imagem, marcadores, debug=False):
+    if len(marcadores) < 4:
+        return imagem  # sem warp, retorna original
 
-        indice_marcado = np.argmax(medias_intensidade)
-        maior_intensidade = medias_intensidade[indice_marcado]
-        numero_questao_atual = questao_inicial + (i // 5)
-        resposta_marcada = "X"
+    # pegar 4 marcadores extremos (top-left, top-right, bottom-right, bottom-left)
+    centers = np.array([[m["cx"], m["cy"]] for m in marcadores], dtype=np.float32)
 
-        if maior_intensidade > LIMIAR_DE_PREENCHIMENTO:
-            resposta_marcada = mapa_respostas[indice_marcado]
-            (x, y, w, h) = cv2.boundingRect(grupo_atual[indice_marcado])
-            cv2.circle(
-                imagem_para_desenhar,
-                (x + w // 2, y + h // 2),
-                int(w * 0.6),
-                (0, 255, 0),
-                2,
-            )
+    # selecionar quatro extremos: usar convex hull dos centros e escolher 4 com extremos por quadrantes
+    # abordagem simples: pegar os 4 com x+y min/max e x-y min/max
+    sums = centers.sum(axis=1)
+    diffs = centers[:,0] - centers[:,1]
+    tl = centers[np.argmin(sums)]
+    br = centers[np.argmax(sums)]
+    tr = centers[np.argmin(diffs)]
+    bl = centers[np.argmax(diffs)]
 
-        gabarito_parcial[numero_questao_atual] = resposta_marcada
-    return gabarito_parcial
+    pts = np.array([tl, tr, br, bl], dtype="float32")
+    rect = order_points(pts)
 
+    (tl, tr, br, bl) = rect
+    # largura e altura de destino
+    widthA = hypot(br[0] - bl[0], br[1] - bl[1])
+    widthB = hypot(tr[0] - tl[0], tr[1] - tl[1])
+    maxWidth = int(max(widthA, widthB) * 1.05)
 
-def extrair_respostas_gabarito(caminho_imagem):
+    heightA = hypot(tr[0] - br[0], tr[1] - br[1])
+    heightB = hypot(tl[0] - bl[0], tl[1] - bl[1])
+    maxHeight = int(max(heightA, heightB) * 1.05)
+
+    # garantir tamanhos razoáveis
+    maxWidth = max(1000, maxWidth)
+    maxHeight = max(1200, maxHeight)
+
+    dst = np.array([
+        [0, 0],
+        [maxWidth - 1, 0],
+        [maxWidth - 1, maxHeight - 1],
+        [0, maxHeight - 1]
+    ], dtype="float32")
+
+    M = cv2.getPerspectiveTransform(rect, dst)
+    warped = cv2.warpPerspective(imagem, M, (maxWidth, maxHeight))
+
+    if debug:
+        cv2.imwrite("debug_warp.png", warped)
+        print("[DEBUG] warped salvo em debug_warp.png")
+
+    return warped
+
+# -------------------------
+# Detecta bolhas e retorna centros e tamanhos
+# -------------------------
+def detectar_bolhas(imagem_warp, debug=False):
+    gray = cv2.cvtColor(imagem_warp, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5,5), 0)
+    thresh = cv2.adaptiveThreshold(blur,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV,15,4)
+    # limpar ruído
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3))
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    centers = []
+    h_img, w_img = imagem_warp.shape[:2]
+    # heurísticas de tamanho relativas
+    min_w = max(6, int(w_img * 0.012))
+    max_w = max(20, int(w_img * 0.045))
+
+    for c in cnts:
+        x,y,w,h = cv2.boundingRect(c)
+        area = cv2.contourArea(c)
+        ar = w / float(h) if h>0 else 0
+        if min_w <= w <= max_w and 0.7 <= ar <= 1.3 and area > 20:
+            cx = x + w//2
+            cy = y + h//2
+            centers.append({"cx": cx, "cy": cy, "w": w, "h": h, "bbox":(x,y,w,h)})
+
+    if debug:
+        img = imagem_warp.copy()
+        for c in centers:
+            cv2.circle(img, (c["cx"], c["cy"]), int(max(c["w"], c["h"])//2), (255,0,0), 1)
+        cv2.imwrite("debug_centers.png", img)
+        print(f"[DEBUG] bolhas detectadas: {len(centers)} -> debug_centers.png")
+
+    return centers, thresh
+
+# -------------------------
+# Mapeia colunas e linhas (grid) e decide alternativa por linha
+# -------------------------
+def extrair_gabarito_da_pagina(imagem_warp, debug=False):
+    centers, thresh = detectar_bolhas(imagem_warp, debug=debug)
+    if len(centers) == 0:
+        raise RuntimeError("Nenhuma bolha detectada na página (centers vazio).")
+
+    xs = sorted(list({c["cx"] for c in centers}))
+    ys = sorted(list({c["cy"] for c in centers}))
+
+    grouped_x = group_positions(xs)
+    grouped_y = group_positions(ys)
+
+    # se houver ~10 colunas (duas colunas de 5) -> página 1 (1-90)
+    # se houver ~5 colunas -> possivelmente apenas um bloco
+    if len(grouped_x) >= 9:
+        # ordenar e dividir em duas metades
+        grouped_x = sorted(grouped_x)
+        left_cols = grouped_x[:5]
+        right_cols = grouped_x[5:10]
+        cols_blocks = [sorted(left_cols), sorted(right_cols)]
+        starts = [1, 46]
+    elif len(grouped_x) >= 5:
+        cols_blocks = [sorted(grouped_x[:5])]
+        starts = [1]
+    else:
+        # fallback: tentar agrupar por quantas colunas existem
+        cols_blocks = [sorted(grouped_x)]
+        starts = [1]
+
+    # garantir linhas (deveria ser 45)
+    # se grouped_y tiver muito mais/menos valores, refinar tol
+    if len(grouped_y) < 40 or len(grouped_y) > 60:
+        # tentar recomputar com tol menor/maior
+        grouped_y = group_positions(ys, tol= int(np.median(np.diff(sorted(ys))) if len(ys)>1 else 25))
+
+    grouped_y = sorted(grouped_y)
+    num_rows = len(grouped_y)
+    # se num_rows > 60 -> reduzir (possivelmente detectou múltiplas por linha)
+    # meta: 45
+    # criar mapeamento final: para cada bloco (left/right), percorre todas as linhas
+    gabarito = {}
+
+    # prepare image copy to draw results
+    visual = imagem_warp.copy()
+
+    for b_idx, cols in enumerate(cols_blocks):
+        start_q = starts[b_idx]
+        for row_idx, row_y in enumerate(grouped_y):
+            # para cada das 5 colunas em cols calcular fill fraction
+            fills = []
+            for col_x in cols:
+                r = max(8, int(np.mean([c["w"] for c in centers]) * 0.6))
+                # criar máscara circular
+                mask = np.zeros(thresh.shape, dtype="uint8")
+                cv2.circle(mask, (int(col_x), int(row_y)), r, 255, -1)
+                # contar pixels preenchidos dentro da máscara (thresh já é invertida: preenchido = white)
+                filled = cv2.countNonZero(cv2.bitwise_and(thresh, thresh, mask=mask))
+                area = np.pi * (r ** 2)
+                fills.append(filled / (area + 1e-8))
+            # escolher maior
+            idx_max = int(np.argmax(fills))
+            best = fills[idx_max]
+            # heurística: considerar marcada se fração > 0.20 (20%)
+            chosen = "-" if best < 0.20 else "ABCDE"[idx_max]
+            question_number = start_q + row_idx
+            gabarito[question_number] = chosen
+
+            # desenhar no visual
+            color = (0,255,0) if chosen != "-" else (0,0,255)
+            cv2.putText(visual, chosen, (int(cols[idx_max]-10), int(row_y+6)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+    if debug:
+        cv2.imwrite("debug_gabarito_visual.png", visual)
+        print("[DEBUG] visual com escolhas salvo em debug_gabarito_visual.png")
+
+    # ordenar por questão e retornar lista ordenada
+    max_q = max(gabarito.keys())
+    result_list = [gabarito.get(i, "-") for i in range(1, max_q+1)]
+    return result_list, visual
+
+# -------------------------
+# Interface principal: processa 1 ou 2 páginas e retorna gabarito 1..N
+# -------------------------
+def processar_arquivos(pages):
     """
-    Função principal que orquestra a leitura completa do gabarito.
-    *** VERSÃO SEM REDIMENSIONAMENTO FIXO: Coordenadas são escaladas dinamicamente ***
+    pages: lista de caminhos (1 ou 2 imagens). Retorna lista de respostas ordenadas (1..N)
     """
-    imagem_original = cv2.imread(caminho_imagem)
-    if imagem_original is None:
-        print(f"ERRO: Não foi possível carregar a imagem: '{caminho_imagem}'")
-        return None
+    all_answers = {}
+    for i, path in enumerate(pages):
+        img = cv2.imread(path)
+        if img is None:
+            raise FileNotFoundError(f"Imagem não encontrada: {path}")
 
-    
-    imagem = imagem_original.copy()
-    imagem_resultado = imagem.copy()
-    
-    altura_real, largura_real, _ = imagem.shape
-    print(f"Tratando imagem original com tamanho: {largura_real}x{altura_real}")
+        marcadores = detectar_quadrados(img, debug=True)
+        warped = warp_from_markers(img, marcadores, debug=True)
+        answers, visual = extrair_gabarito_da_pagina(warped, debug=True)
 
-    # --- BASE DE CÁLCULO PARA AS COORDENADAS ---
-    
-    LARGURA_REF = 750
-    ALTURA_REF = 898
-
-    
-    fator_escala_x = largura_real / LARGURA_REF
-    fator_escala_y = altura_real / ALTURA_REF
-
-    
-    print("Procurando âncora 'Simulado'...")
-    img_cinza_ocr = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
-    dados = pytesseract.image_to_data(
-        img_cinza_ocr, output_type=pytesseract.Output.DICT, lang="por"
-    )
-
-    ancora_x, ancora_y = None, None
-    for i, palavra in enumerate(dados["text"]):
-        palavra_limpa = (
-            unicodedata.normalize("NFKD", palavra)
-            .encode("ascii", "ignore")
-            .decode("utf-8")
-            .lower()
-        )
-        if "simulado" in palavra_limpa and dados["conf"][i] > 50:
-            ancora_x = dados["left"][i]
-            ancora_y = dados["top"][i]
-            print(f"✅ Âncora 'Simulado' encontrada em (x={ancora_x}, y={ancora_y})")
-            cv2.rectangle(
-                imagem_resultado,
-                (ancora_x, ancora_y),
-                (ancora_x + dados["width"][i], ancora_y + dados["height"][i]),
-                (0, 0, 255),
-                2,
-            )
-            break
-
-    if ancora_x is None:
-        print(
-            "ERRO CRÍTICO: Âncora 'Simulado' não encontrada na imagem. Não é possível continuar."
-        )
-        return None
-
-    # --- CONFIGURAÇÃO DOS DESLOCAMENTOS (OFFSETS) ---
-    
-    
-    bloco_1 = {"x": -50, "y": 110, "largura": 100, "altura": 500}
-    bloco_2 = {"x": 75, "y": 110, "largura": 100, "altura": 250}
-    bloco_3 = {"x": 190, "y": 110, "largura": 100, "altura": 500}
-    bloco_4 = {"x": 300, "y": 110, "largura": 100, "altura": 250}
-
-    todos_blocos = [
-        {"config": bloco_1, "questao_inicial": 1, "label": "Bloco 1 (Questões 1-30)"},
-        {"config": bloco_2, "questao_inicial": 31, "label": "Bloco 2 (Questões 31-45)"},
-        {"config": bloco_3, "questao_inicial": 46, "label": "Bloco 3 (Questões 46-75)"},
-        {"config": bloco_4, "questao_inicial": 76, "label": "Bloco 4 (Questões 76-90)"},
-    ]
-
-    gabarito_final = {}
-
-    for bloco in todos_blocos:
-        print(f"Processando {bloco['label']}...")
-        conf = bloco["config"]
-
-        
-        offset_x_escalado = int(conf["x"] * fator_escala_x)
-        offset_y_escalado = int(conf["y"] * fator_escala_y)
-        w_escalado = int(conf["largura"] * fator_escala_x)
-        h_escalado = int(conf["altura"] * fator_escala_y)
-
-       
-        x_abs = ancora_x + offset_x_escalado
-        y_abs = ancora_y + offset_y_escalado
-        
-        
-        x_abs = max(0, x_abs)
-        y_abs = max(0, y_abs)
-        w = min(w_escalado, largura_real - x_abs)
-        h = min(h_escalado, altura_real - y_abs)
-
-        roi_recortada = imagem[y_abs : y_abs + h, x_abs : x_abs + w]
-        roi_para_desenhar = imagem_resultado[y_abs : y_abs + h, x_abs : x_abs + w]
-
-        respostas_parciais = processar_bloco_respostas(
-            roi_recortada, bloco["questao_inicial"], roi_para_desenhar
-        )
-        gabarito_final.update(respostas_parciais)
-        cv2.rectangle(
-            imagem_resultado, (x_abs, y_abs), (x_abs + w, y_abs + h), (255, 0, 0), 3
-        )
-
-    
-    print("\n\n--- GABARITO EXTRAÍDO COM SUCESSO ---")
-    
-    for i in range(30):
-        linha_str = ""
-        if (i + 1) in gabarito_final:
-            linha_str += f"Q{i+1:02d}: {gabarito_final[i+1]}   \t"
+        # se page é primeira (i==0) e answers length == 90 -> assume 1..90
+        if len(answers) >= 90:
+            # assume page contains 90 (1..90)
+            for q_idx, ans in enumerate(answers[:90], start=1):
+                all_answers[q_idx] = ans
         else:
-            linha_str += " " * 10 + "\t"
-        if (i + 31) in gabarito_final:
-            linha_str += f"Q{i+31:02d}: {gabarito_final[i+31]}   \t"
-        else:
-            linha_str += " " * 10 + "\t"
-        if (i + 46) in gabarito_final:
-            linha_str += f"Q{i+46:02d}: {gabarito_final[i+46]}   \t"
-        else:
-            linha_str += " " * 10 + "\t"
-        if (i + 76) in gabarito_final:
-            linha_str += f"Q{i+76:02d}: {gabarito_final[i+76]}"
-        print(linha_str)
+            # assume answers correspond to a single block of 45
+            offset = 1 if i == 0 else 91
+            for q_idx, ans in enumerate(answers[:45], start=offset):
+                all_answers[q_idx] = ans
 
-    cv2.imwrite("gabarito_resultado_visual.jpg", imagem_resultado)
-    print("\n📝 Imagem 'gabarito_resultado_visual.jpg' salva com as detecções.")
-    return gabarito_final
+        # salvar visual anotado por página (opcional)
+        base = os.path.splitext(os.path.basename(path))[0]
+        cv2.imwrite(f"marked_{base}.png", visual)
+        print(f"[INFO] marked image salvo: marked_{base}.png")
 
+    # juntar e ordenar
+    max_q = max(all_answers.keys())
+    final = [all_answers.get(i, "-") for i in range(1, max_q+1)]
+    # salvar CSV
+    with open("gabarito_final.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Questao", "Resposta"])
+        for i, r in enumerate(final, start=1):
+            writer.writerow([i, r])
+    print("[INFO] gabarito_final.csv salvo.")
+    return final
 
+# -------------------------
+# Executar (exemplo)
+# -------------------------
 if __name__ == "__main__":
-    
-    diretorio_do_script = os.path.dirname(os.path.abspath(__file__))
-    nome_do_arquivo = "prova5.png"
-    caminho_do_gabarito = os.path.join(diretorio_do_script, nome_do_arquivo)
-   
-
-    extrair_respostas_gabarito(caminho_do_gabarito)
+    # exemplo: se você tiver apenas a página 1 (1-90)
+    pages = ["backend/prova_1.png"]   # ou ["backend/prova_1.png", "backend/prova_2.png"]
+    final = processar_arquivos(pages)
+    print(final)
