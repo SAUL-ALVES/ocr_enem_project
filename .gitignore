@@ -8,6 +8,12 @@ __pycache__/
 
 /backend/resultados/
 
+/backend/node_modules/
+
+/uploads
+
+/resultados
+
 
 logs
 *.log
