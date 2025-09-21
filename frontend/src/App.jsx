@@ -5,6 +5,7 @@ import ReportView from './components/ReportView';
 import Sidebar from './components/Sidebar';
 import logo from '../public/logo.png';
 
+
 const mockDatabase = {
   "ALUNO-583271": {
     code: "ALUNO-583271",
@@ -25,21 +26,20 @@ const mockDatabase = {
 };
 
 function App() {
-  const [reportData, setReportData] = useState(null);
-  const [userCode, setUserCode] = useState(''); 
+  
+  const [correctionResult, setCorrectionResult] = useState(null);
   
   const [searchCode, setSearchCode] = useState('');
   const [selectedDate, setSelectedDate] = useState(null);
   const [filteredHistory, setFilteredHistory] = useState([]);
 
+
   useEffect(() => {
     const codeToSearch = searchCode.trim().toUpperCase();
-    
     if (!codeToSearch) {
       setFilteredHistory([]);
       return;
     }
-
     const studentData = mockDatabase[codeToSearch];
     if (studentData) {
       let history = studentData.history;
@@ -53,13 +53,13 @@ function App() {
     }
   }, [searchCode, selectedDate]);
 
-  const handleCorrection = (data, code) => {
-    setUserCode(code);
-    setReportData(data);
+  
+  const handleCorrection = (data) => {
+    setCorrectionResult(data);
   };
 
   const handleCloseReport = () => {
-    setReportData(null);
+    setCorrectionResult(null);
   };
 
   const handleClearSearch = () => {
@@ -69,10 +69,10 @@ function App() {
 
   return (
     <>
-      {reportData && (
+      {/* --- CORREÇÃO: Renderiza o ReportView com base no novo estado --- */}
+      {correctionResult && (
         <ReportView
-          reportData={reportData}
-          userCode={userCode}
+          result={correctionResult} 
           onClose={handleCloseReport}
         />
       )}
@@ -94,6 +94,7 @@ function App() {
               <h1>OCR ENEM</h1>
               <p>Envie o gabarito da sua prova ou simulado e tenha a correção instantânea.</p>
             </div>
+            {/* O UploadForm agora chama a nova handleCorrection */}
             <UploadForm onCorrect={handleCorrection} />
           </div>
         </main>

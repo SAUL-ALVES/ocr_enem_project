@@ -1,12 +1,23 @@
 import React from 'react';
 
-const ReportView = ({ reportData, userCode, onClose }) => {
-  if (!reportData) return null;
 
-  const { acertos, total_questoes } = reportData;
-  const percentual = acertos / total_questoes;
-  const percentualDisplay = (percentual * 100).toFixed(1);
+const ReportView = ({ result, onClose }) => {
+  
+  if (!result) return null;
 
+
+  const codigoAluno = result?.codigo_aluno ?? 'N/A';
+  const analise = result?.analise;
+
+  
+  const acertos = analise?.acertos ?? 0;
+  const totalQuestoes = analise?.total_questoes ?? 0;
+
+
+  const percentual = totalQuestoes > 0 ? (acertos / totalQuestoes) : 0;
+  const percentualDisplay = (percentual * 100).toFixed(0); 
+
+  
   const radius = 65;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - percentual * circumference;
@@ -17,7 +28,8 @@ const ReportView = ({ reportData, userCode, onClose }) => {
         <button className="close-button" onClick={onClose}>&times;</button>
         
         <h3>Seu Relatório de Desempenho</h3>
-        <p className="user-code">Código: {userCode}</p>
+        {/* Exibe o código do aluno extraído */}
+        <p className="user-code">Código: {codigoAluno}</p>
 
         <div className="score-circle">
           <svg>
@@ -31,11 +43,12 @@ const ReportView = ({ reportData, userCode, onClose }) => {
               strokeDashoffset={strokeDashoffset}
             ></circle>
           </svg>
+          {/* Exibe a porcentagem calculada de forma segura */}
           <div className="score-text">{percentualDisplay}%</div>
         </div>
 
         <p className="score-details">
-          Você acertou <strong>{acertos}</strong> de <strong>{total_questoes}</strong> questões.
+          Você acertou <strong>{acertos}</strong> de <strong>{totalQuestoes}</strong> questões.
         </p>
 
         <button id="correct-button" style={{marginTop: '30px'}} onClick={onClose}>

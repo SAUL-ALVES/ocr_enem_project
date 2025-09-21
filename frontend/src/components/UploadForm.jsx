@@ -20,51 +20,55 @@ const UploadForm = ({ onCorrect }) => {
   };
 
   const handleCorrect = async () => {
-  if (!selectedDay || !selectedYear || !selectedLanguage) {
-    alert("Por favor, selecione o dia, o idioma e o ano da prova.");
-    return;
-  }
-  if (!file) {
-    alert("Por favor, selecione um arquivo.");
-    return;
-  }
-
-  setIsLoading(true);
-
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("day", selectedDay);
-    formData.append("year", selectedYear.getFullYear());
-    formData.append("language", selectedLanguage);
-
-    const response = await fetch("http://127.0.0.1:8000/corrigir/", {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(err);
+    if (!selectedDay || !selectedYear || !selectedLanguage) {
+      alert("Por favor, selecione o dia, o idioma e o ano da prova.");
+      return;
+    }
+    if (!file) {
+      alert("Por favor, selecione um arquivo.");
+      return;
     }
 
-    const resultData = await response.json();
-    onCorrect(resultData, resultData.user_code || null);
+    setIsLoading(true);
 
-    setFile(null);
-    setSelectedDay(null);
-    setSelectedYear(null);
-    setSelectedLanguage(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("day", selectedDay);
+      formData.append("year", selectedYear.getFullYear());
+      formData.append("language", selectedLanguage);
 
-  } catch (error) {
-    console.error("Erro ao corrigir:", error);
-    alert("Erro ao enviar o arquivo para correção. Verifique o console.");
-  } finally {
-    setIsLoading(false);
-  }
-};
+      const response = await fetch("http://127.0.0.1:8000/corrigir/", {
+        method: "POST",
+        body: formData,
+      });
 
+      
+      const resultData = await response.json();
 
+      if (!response.ok) {
+        
+        throw new Error(resultData.error || 'Ocorreu um erro desconhecido.');
+      }
+      
+      
+      onCorrect(resultData);
+
+      // Limpa o formulário
+      setFile(null);
+      setSelectedDay(null);
+      setSelectedYear(new Date());
+      setSelectedLanguage(null);
+
+    } catch (error) {
+      console.error("Erro ao corrigir:", error);
+      alert(`Erro ao enviar o arquivo: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  
   const handleDragEvents = (e, dragging) => {
     e.preventDefault();
     e.stopPropagation();
