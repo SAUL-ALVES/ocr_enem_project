@@ -35,7 +35,7 @@ const UploadForm = ({ onCorrect }) => {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("day", selectedDay);
-    formData.append("year", selectedYear);
+    formData.append("year", selectedYear.getFullYear());
     formData.append("language", selectedLanguage);
 
     const response = await fetch("http://127.0.0.1:8000/corrigir/", {
