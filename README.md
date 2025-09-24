@@ -55,6 +55,13 @@ O projeto é construído com os seguintes componentes:
 
 4. **Execute a aplicação:**
     ```bash
+    cd  .\frontend\
+    npm install
+    npm run build  
+    ```
+    ```bash
+    cd..
+    cd  .\backend\
     uvicorn main:app --reload
     ```
 
