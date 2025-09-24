@@ -1,29 +1,54 @@
 {
-    
     "01": {
         "nome": "Alan Dellbert",
         "turma": "Redes 3",
         "historico": []
-
     },
-
-
     "02": {
         "nome": "Amanda Vitória",
         "turma": "Redes 3",
         "historico": []
     },
-
     "03": {
         "nome": "Ana Clara",
         "turma": "Redes 3",
-        "historico": []
+        "historico": [
+            {
+                "data_correcao": "2025-09-24T15:11:33.787872",
+                "mensagem": "Prova do aluno Ana Clara corrigida e histórico salvo!",
+                "codigo_aluno": "03",
+                "nome_aluno": "Ana Clara",
+                "detalhes_prova": {
+                    "ano": "2022",
+                    "dia": "1",
+                    "idioma": "espanhol"
+                },
+                "analise": {
+                    "acertos": 16,
+                    "total_questoes": 90
+                }
+            }
+        ]
     },
-
     "04": {
         "nome": "Ana Laura",
         "turma": "Redes 3",
-        "historico": []
+        "historico": [
+            {
+                "data_correcao": "2025-09-24T15:13:09.394429",
+                "mensagem": "Prova do aluno Ana Laura corrigida e histórico salvo!",
+                "codigo_aluno": "04",
+                "nome_aluno": "Ana Laura",
+                "detalhes_prova": {
+                    "ano": "2022",
+                    "dia": "1",
+                    "idioma": "espanhol"
+                },
+                "analise": {
+                    "acertos": 13,
+                    "total_questoes": 90
+                }
+            }
+        ]
     }
-
 }

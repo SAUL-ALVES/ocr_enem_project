@@ -21,14 +21,14 @@ import uuid
 
 app = FastAPI()
 
-FRONTEND_DIST = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-)
-app.mount(
-    "/assets",
-    StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")),
-    name="assets",
-)
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+
+if os.path.exists(os.path.join(FRONTEND_DIST, "assets")):
+    app.mount(
+        "/assets",
+        StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")),
+        name="assets",
+    )
 
 UPLOADS_DIR = "uploads"
 os.makedirs(UPLOADS_DIR, exist_ok=True)
@@ -118,11 +118,11 @@ async def corrigir(
 
         nova_entrada_historico = {
             "data_correcao": datetime.now().isoformat(),
-            "prova_ano": year,
-            "prova_dia": day,
-            "prova_idioma": language,
-            "respostas_enviadas": respostas_dict,
-            "analise_resultado": results_analysis,
+            "mensagem": f"Prova do aluno {aluno.get('nome', '')} corrigida e histórico salvo!",
+            "codigo_aluno": codigo_aluno,
+            "nome_aluno": aluno.get("nome", "Não cadastrado"),
+            "detalhes_prova": {"ano": year, "dia": day, "idioma": language},
+            "analise": results_analysis,
         }
 
         aluno["historico"].append(nova_entrada_historico)
@@ -161,5 +161,44 @@ async def corrigir(
             content={"error": "Erro interno no servidor.", "details": str(e)},
         )
 
+@app.get("/resumo_historico/")
+def resumo_historico():
+    try:
+        alunos_db = carregar_dados_alunos()
+        resumo_list = []
 
-# Para rodar a aplicação: uvicorn main:app --reload
+        for codigo, aluno in alunos_db.items():
+            nome = aluno.get("nome", "Não cadastrado")
+            historico = aluno.get("historico", [])
+
+            resumo_list.append(f"{codigo} - {nome}")
+
+            if not historico:
+                resumo_list.append("   Sem histórico")
+                continue
+
+            for correcao in historico:
+                # tenta pegar do novo formato
+                detalhes = correcao.get("detalhes_prova", {})
+                analise = correcao.get("analise", {})
+
+                ano = detalhes.get("ano", "?")
+                dia = detalhes.get("dia", "?")
+                idioma = detalhes.get("idioma", "?")
+
+                acertos = analise.get("acertos", 0)
+                total_questoes = analise.get("total_questoes", 0)
+
+                resumo_list.append(
+                    f"   Ano: {ano} | Dia: {dia} | Idioma: {idioma} → {acertos} / {total_questoes}"
+                )
+
+        resumo_str = "\n".join(resumo_list)
+        return JSONResponse({"resumo": resumo_str})
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Erro ao gerar resumo do histórico.", "details": str(e)},
+        )
+
